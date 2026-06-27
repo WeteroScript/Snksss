@@ -1,4 +1,4 @@
-# bot.py - 3 ЖАЛОБЫ С ПАУЗОЙ 30 МИНУТ
+# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ (ССЫЛКА РАБОТАЕТ)
 
 import os
 import asyncio
@@ -58,10 +58,11 @@ def send_complaint_via_email(sender_email, sender_password, target_email, subjec
         logger.error(f"❌ Ошибка: {e}")
         return False
 
-# ===== ГЕНЕРАТОР ССЫЛКИ =====
+# ===== ГЕНЕРАТОР ССЫЛКИ (РАБОТАЕТ ДЛЯ КАНАЛОВ/ЧАТОВ) =====
 
 def get_message_link(update):
     try:
+        # Если переслано из канала/чата
         if hasattr(update.message, 'forward_from_chat') and update.message.forward_from_chat:
             chat = update.message.forward_from_chat
             msg_id = update.message.forward_from_message_id
@@ -73,6 +74,7 @@ def get_message_link(update):
             else:
                 return f"https://t.me/c/{chat.id}/{msg_id}"
         
+        # Если переслано от пользователя
         elif hasattr(update.message, 'forward_from') and update.message.forward_from:
             user = update.message.forward_from
             if user.username:
@@ -80,6 +82,7 @@ def get_message_link(update):
             else:
                 return "Forwarded from a private user (link not available)"
         
+        # Если другой тип пересылки
         elif hasattr(update.message, 'forward_origin') and update.message.forward_origin:
             return "Forwarded (link not available)"
         
@@ -90,9 +93,9 @@ def get_message_link(update):
         logger.error(f"Ошибка генерации ссылки: {e}")
         return "Link could not be generated"
 
-# ===== ГЕНЕРАТОР ТЕКСТОВ (БОЛЕЕ ЖИВЫЕ) =====
+# ===== ГЕНЕРАТОР ТЕКСТОВ (20+ ВАРИАНТОВ) =====
 
-def generate_complaint(target, message, reason, message_link, complaint_num):
+def generate_complaint(target, message, reason, message_link):
     if target.startswith('@@'):
         target = target[1:]
     
@@ -265,6 +268,187 @@ Link: {message_link}
 I've been using Telegram for years and this is the first time I've had to report someone. Please handle this.
 
 Thanks.
+""",
+        
+        f"""
+Hello Telegram Team,
+
+I'm contacting you about @{target}. They've been sending messages that are not acceptable and became aggressive when I responded.
+
+The message:
+{message}
+
+This is {reason}. They're clearly breaking the rules.
+
+Link: {message_link}
+
+Please take a look at this user's account. I think they're doing this to other people too.
+
+Regards.
+""",
+        
+        f"""
+To whom it may concern,
+
+@{target} has been harassing me for no reason. I didn't do anything to provoke this person.
+
+What they sent:
+{message}
+
+Reason: {reason}.
+
+Here's the proof: {message_link}
+
+I'd appreciate it if you could review their account and take action.
+
+Sincerely.
+""",
+        
+        f"""
+Hi Support Team,
+
+I want to report @{target} for aggressive behavior. They started attacking me out of nowhere.
+
+The message:
+{message}
+
+Why it's a problem: {reason}.
+
+You can see it here: {message_link}
+
+Please investigate this user. This is not how people should behave on Telegram.
+
+Thanks.
+""",
+        
+        f"""
+Dear Support,
+
+@{target} is causing problems. They became aggressive towards me for no reason.
+
+What they wrote:
+{message}
+
+This is {reason}. I've never had this happen before.
+
+Link: {message_link}
+
+I hope you can take action against this account.
+
+Best.
+""",
+        
+        f"""
+Hello,
+
+I'm reporting @{target} because they started being aggressive towards me without any reason.
+
+The message they sent:
+{message}
+
+Reason: {reason}.
+
+Proof: {message_link}
+
+Please check this user and take necessary steps.
+
+Thanks.
+""",
+        
+        f"""
+Telegram Team,
+
+@{target} sent me an aggressive message for no reason. I didn't even know this person.
+
+The message:
+{message}
+
+This is {reason}. Here's the link: {message_link}
+
+Please review their account. This kind of behavior is unacceptable.
+
+Regards.
+""",
+        
+        f"""
+Hi Support,
+
+I've had a problem with @{target}. They became aggressive towards me out of nowhere.
+
+Here's the message:
+{message}
+
+Why I'm reporting: {reason}.
+
+Link: {message_link}
+
+Please look into this. I'm sure I'm not the only one.
+
+Thanks.
+""",
+        
+        f"""
+Dear Telegram Team,
+
+@{target} started attacking me for no reason. I was just minding my own business.
+
+What they said:
+{message}
+
+This is {reason}. You can verify it here: {message_link}
+
+Please take appropriate action against this user.
+
+Sincerely.
+""",
+        
+        f"""
+Hello Support,
+
+I want to complain about @{target}. They've been aggressive towards me for no reason.
+
+The message:
+{message}
+
+Reason: {reason}.
+
+Evidence: {message_link}
+
+Please investigate. This shouldn't be allowed.
+
+Thanks.
+""",
+        
+        f"""
+Hi,
+
+@{target} is being aggressive towards me for no reason. I didn't do anything to provoke them.
+
+The message they sent:
+{message}
+
+This is {reason}. Here's the link: {message_link}
+
+Please check their account and take action if necessary.
+
+Regards.
+""",
+        
+        f"""
+Telegram Support,
+
+I'm filing a complaint about @{target}. They started being aggressive towards me for absolutely no reason.
+
+Message:
+{message}
+
+Reason: {reason}.
+
+Link: {message_link}
+
+I hope you can take action against this user. This is not okay.
+
+Sincerely.
 """
     ]
     
@@ -391,11 +575,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         success_count = 0
         
         for i in range(3):
-            # Генерируем уникальный текст для каждой жалобы
-            complaint = generate_complaint(clean_target, message, text, message_link, i+1)
+            complaint = generate_complaint(clean_target, message, text, message_link)
             subject = generate_subject(clean_target)
             
-            # Отправляем
             success = send_complaint_via_email(
                 sender_email=EMAIL_ACCOUNTS[0]['email'],
                 sender_password=EMAIL_ACCOUNTS[0]['password'],
@@ -417,13 +599,12 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
                 break
             
-            # Если это не последняя жалоба — ждём 30 минут
             if i < 2:
                 await update.message.reply_text(
                     f"⏳ Waiting 30 minutes before next complaint...\n"
                     f"⏰ Next at: {time.strftime('%H:%M:%S', time.localtime(time.time() + 1800))}"
                 )
-                await asyncio.sleep(1800)  # 30 минут = 1800 секунд
+                await asyncio.sleep(1800)
         
         # Итог
         if success_count == 3:
@@ -454,6 +635,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No active process")
 
+# ===== ЗАПУСК =====
+
 def main():
     application = Application.builder().token(TOKEN).build()
     
@@ -468,6 +651,7 @@ def main():
     print(f"📧 Email: {EMAIL_ACCOUNTS[0]['email']}")
     print(f"📨 To: abuse@telegram.org")
     print(f"📤 Sends: 3 complaints (30 min pause between each)")
+    print(f"🔗 Links: Working for public channels/chats")
     print("="*60)
     print("📩 Use /start")
     print("="*60)
