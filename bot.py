@@ -1,4 +1,4 @@
-# bot.py - ФИНАЛ (ССЫЛКА НА СООБЩЕНИЕ + ЖИВЫЕ ТЕКСТЫ)
+# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ (ССЫЛКА НА СООБЩЕНИЕ)
 
 import os
 import asyncio
@@ -61,26 +61,45 @@ def send_complaint_via_email(sender_email, sender_password, target_email, subjec
 
 # ===== ГЕНЕРАТОР ССЫЛКИ НА СООБЩЕНИЕ =====
 
-def generate_message_link(chat_id, message_id):
-    """Генерирует ссылку на сообщение в Telegram"""
-    # Для публичных каналов/чатов
-    if str(chat_id).startswith('-100'):
-        chat_username = f"c/{str(chat_id)[4:]}"
-    else:
-        chat_username = str(chat_id)
-    
-    return f"https://t.me/{chat_username}/{message_id}"
+def generate_message_link(update):
+    """Генерирует ссылку на пересланное сообщение"""
+    try:
+        # Если переслано из канала/чата
+        if hasattr(update.message, 'forward_from_chat') and update.message.forward_from_chat:
+            chat_id = update.message.forward_from_chat.id
+            message_id = update.message.forward_from_message_id
+            
+            # Для публичных каналов
+            if str(chat_id).startswith('-100'):
+                chat_username = f"c/{str(chat_id)[4:]}"
+            else:
+                chat_username = str(chat_id)
+            
+            return f"https://t.me/{chat_username}/{message_id}"
+        
+        # Если переслано от пользователя (нельзя сделать ссылку)
+        elif hasattr(update.message, 'forward_from') and update.message.forward_from:
+            return "Message forwarded from a user (link not available for private chats)"
+        
+        # Если переслано через forward_origin
+        elif hasattr(update.message, 'forward_origin') and update.message.forward_origin:
+            return "Message forwarded (link not available)"
+        
+        else:
+            return "No link available"
+            
+    except Exception as e:
+        logger.error(f"Ошибка генерации ссылки: {e}")
+        return "Link could not be generated"
 
 # ===== ГЕНЕРАТОР НАТУРАЛЬНЫХ ТЕКСТОВ =====
 
 def generate_complaint(target, message, reason, message_link):
-    # Убираем лишний @
     if target.startswith('@@'):
         target = target[1:]
     elif target.startswith('@'):
         target = target
     
-    # 20+ РАЗНЫХ ВАРИАНТОВ ТЕКСТА (без маркированных списков)
     templates = [
         f"""
 Hi Telegram Team,
@@ -526,25 +545,26 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         is_forwarded = False
         forwarded_text = ""
         
+        # Проверяем, переслано ли сообщение
         if hasattr(update.message, 'forward_from') and update.message.forward_from:
             is_forwarded = True
             forwarded_text = update.message.text or "Media message"
+            user_data[user_id]["forward_type"] = "user"
+            
         elif hasattr(update.message, 'forward_from_chat') and update.message.forward_from_chat:
             is_forwarded = True
             forwarded_text = update.message.text or "Media message"
+            user_data[user_id]["forward_type"] = "chat"
+            user_data[user_id]["forward_chat_id"] = update.message.forward_from_chat.id
+            user_data[user_id]["forward_message_id"] = update.message.forward_from_message_id
+            
         elif hasattr(update.message, 'forward_origin') and update.message.forward_origin:
             is_forwarded = True
             forwarded_text = update.message.text or "Media message"
+            user_data[user_id]["forward_type"] = "origin"
         
         if is_forwarded:
-            # Сохраняем ID чата и сообщения для ссылки
-            chat_id = update.message.forward_from_chat.id if update.message.forward_from_chat else update.message.chat.id
-            message_id = update.message.message_id
-            
-            message_link = generate_message_link(chat_id, message_id)
-            
             user_data[user_id]["message"] = forwarded_text
-            user_data[user_id]["message_link"] = message_link
             user_data[user_id]["step"] = "waiting_reason"
             await update.message.reply_text(
                 "✅ Message received!\n"
@@ -562,12 +582,29 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         data = user_data[user_id]
         target = data.get("target")
         message = data.get("message")
-        message_link = data.get("message_link", "No link available")
+        forward_type = data.get("forward_type", "unknown")
         
         if not target or not message:
             await update.message.reply_text("❌ Error. Press /start again")
             del user_data[user_id]
             return
+        
+        # Генерируем ссылку
+        message_link = "Link not available for this type of forward"
+        
+        if forward_type == "chat":
+            chat_id = data.get("forward_chat_id")
+            msg_id = data.get("forward_message_id")
+            if chat_id and msg_id:
+                if str(chat_id).startswith('-100'):
+                    chat_username = f"c/{str(chat_id)[4:]}"
+                else:
+                    chat_username = str(chat_id)
+                message_link = f"https://t.me/{chat_username}/{msg_id}"
+        elif forward_type == "user":
+            message_link = "Message forwarded from a user (link not available for private chats)"
+        else:
+            message_link = "Link could not be generated"
         
         clean_target = target
         if clean_target.startswith('@@'):
