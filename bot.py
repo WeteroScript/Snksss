@@ -21,7 +21,7 @@ if not TOKEN:
 EMAIL_ACCOUNTS = [
     {
         "email": "allllkssso1@gmail.com",
-        "password": "eller228",
+        "password": "irosxfskteabviic",
         "smtp": "smtp.gmail.com",
         "port": 587
     },
