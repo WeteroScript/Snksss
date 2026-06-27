@@ -1,4 +1,4 @@
-# bot.py - ПОЛНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЕМ
+# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 import os
 import asyncio
@@ -25,7 +25,6 @@ EMAIL_ACCOUNTS = [
         "smtp": "smtp.gmail.com",
         "port": 587
     },
-    # Добавляй сюда другие почты
 ]
 
 # Отключаем webhook
@@ -34,7 +33,7 @@ try:
 except:
     pass
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 user_data = {}
@@ -51,7 +50,6 @@ def send_complaint_via_email(sender_email, sender_password, target_email, subjec
         
         msg.attach(MIMEText(body, 'plain'))
         
-        # Определяем SMTP сервер по домену
         if 'gmail.com' in sender_email:
             smtp_server = "smtp.gmail.com"
             port = 587
@@ -82,8 +80,7 @@ def send_complaint_via_email(sender_email, sender_password, target_email, subjec
 # ===== ГЕНЕРАТОР ТЕКСТА ЖАЛОБЫ =====
 
 def generate_complaint(target, message, reason):
-    templates = [
-        f"""
+    return f"""
 🚨 СРОЧНАЯ ЖАЛОБА НА ПОЛЬЗОВАТЕЛЯ @{target}
 
 Уважаемая служба поддержки Telegram!
@@ -100,60 +97,24 @@ def generate_complaint(target, message, reason):
 {message}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Данный пользователь:
-1. Распространяет оскорбительный контент
-2. Нарушает правила сообщества
-3. Создает угрозу для других пользователей
+Данный пользователь нарушает правила сообщества.
 
 Прошу принять меры:
 - Заблокировать аккаунт @{target}
 - Провести проверку
-- Удалить все нарушающие сообщения
 
 Номер обращения: TG-{random.randint(100000, 999999)}
 Дата: {time.strftime('%Y-%m-%d %H:%M:%S')}
 
 С уважением,
 Пользователь Telegram
-""",
-        f"""
-⚠️ COMPLAINT AGAINST @{target}
-
-Telegram Support Team,
-
-I am reporting user @{target} for violating Telegram's Terms of Service.
-
-VIOLATION: {reason}
-
-EVIDENCE:
-{message}
-
-This user has been engaging in:
-- Harassment
-- Spam
-- Violation of community guidelines
-
-Requested action:
-- Account suspension
-- Investigation
-- Removal of content
-
-Case ID: #{random.randint(1000, 9999)}
-Date: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-Sincerely,
-Telegram User
 """
-    ]
-    return random.choice(templates)
 
 def generate_subject(target):
     subjects = [
         f"URGENT: Complaint Against @{target}",
         f"VIOLATION REPORT: User @{target}",
         f"FORMAL COMPLAINT: @{target} Violates Rules",
-        f"🚨 EMERGENCY: Report @{target}",
-        f"Telegram Abuse Report: @{target}"
     ]
     return random.choice(subjects)
 
@@ -182,61 +143,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data[user_id] = {"step": "waiting_target"}
         await query.edit_message_text("🎯 Введите username цели (например: @username)")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка всех сообщений"""
+# ===== ОСНОВНОЙ ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ =====
+async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ЕДИНЫЙ обработчик для всех текстовых сообщений"""
     user_id = update.message.from_user.id
+    text = update.message.text
     
-    # Если пользователь не в процессе - игнорируем
+    logger.info(f"Сообщение от {user_id}: {text[:50]}... Шаг: {user_data.get(user_id, {}).get('step', 'нет')}")
+    
+    # Если пользователь не в процессе
     if user_id not in user_data:
         await update.message.reply_text("Нажмите /start для начала")
         return
     
-    text = update.message.text
     step = user_data[user_id].get("step")
     
+    # ===== ШАГ 1: ВВОД ЦЕЛИ =====
     if step == "waiting_target":
-        # Сохраняем цель
         user_data[user_id]["target"] = text
         user_data[user_id]["step"] = "waiting_message"
         await update.message.reply_text(
             f"✅ Цель: {text}\n"
             "Теперь ПЕРЕШЛИТЕ сообщение, на которое нужно отправить жалобу"
         )
+        return
     
-    elif step == "waiting_message":
-        # ===== ИСПРАВЛЕННАЯ ПРОВЕРКА ПЕРЕСЛАННОГО СООБЩЕНИЯ =====
-        
-        # Проверяем, является ли сообщение пересланным
+    # ===== ШАГ 2: ПЕРЕСЫЛКА СООБЩЕНИЯ =====
+    if step == "waiting_message":
+        # Проверяем, переслано ли сообщение
         is_forwarded = False
         forwarded_text = ""
         
-        # Способ 1: Проверяем forward_from (если переслано от пользователя)
         if hasattr(update.message, 'forward_from') and update.message.forward_from is not None:
             is_forwarded = True
             forwarded_text = update.message.text or "Медиа-сообщение"
-        
-        # Способ 2: Проверяем forward_from_chat (если переслано из чата/канала)
         elif hasattr(update.message, 'forward_from_chat') and update.message.forward_from_chat is not None:
             is_forwarded = True
             forwarded_text = update.message.text or "Медиа-сообщение"
-        
-        # Способ 3: Проверяем forward_origin (новый API)
         elif hasattr(update.message, 'forward_origin') and update.message.forward_origin is not None:
             is_forwarded = True
             forwarded_text = update.message.text or "Медиа-сообщение"
         
-        # Способ 4: Проверяем наличие подписи "Forwarded from"
-        elif update.message.text and "Forwarded from" in update.message.text:
-            is_forwarded = True
-            forwarded_text = update.message.text
-        
-        # Если сообщение переслано
         if is_forwarded:
             user_data[user_id]["message"] = forwarded_text
             user_data[user_id]["step"] = "waiting_reason"
             await update.message.reply_text(
                 "✅ Сообщение получено!\n"
-                "📝 Теперь напишите причину жалобы"
+                "📝 Теперь напишите ПРИЧИНУ жалобы\n"
+                "(Например: Оскорбление в чате)"
             )
         else:
             await update.message.reply_text(
@@ -244,91 +198,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Как правильно переслать:\n"
                 "1. Нажмите на сообщение\n"
                 "2. Выберите 'Переслать'\n"
-                "3. Выберите этого бота\n"
-                "4. Отправьте"
+                "3. Выберите этого бота"
             )
-
-async def handle_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка причины и отправка жалобы"""
-    user_id = update.message.from_user.id
-    reason = update.message.text
-    
-    if user_id not in user_data:
-        await update.message.reply_text("Нажмите /start")
         return
     
-    if user_data[user_id].get("step") != "waiting_reason":
-        return
-    
-    data = user_data[user_id]
-    target = data.get("target")
-    message = data.get("message")
-    
-    if not target or not message:
-        await update.message.reply_text("❌ Ошибка: данные потеряны. Начните заново /start")
-        del user_data[user_id]
-        return
-    
-    # Генерируем текст жалобы
-    complaint_text = generate_complaint(target, message, reason)
-    subject = generate_subject(target)
-    
-    await update.message.reply_text(
-        "⏳ Отправляю жалобу с твоей почты...\n"
-        "Это может занять несколько секунд"
-    )
-    
-    # Отправляем с каждого email аккаунта
-    success_count = 0
-    total_accounts = len(EMAIL_ACCOUNTS)
-    
-    for account in EMAIL_ACCOUNTS:
+    # ===== ШАГ 3: ВВОД ПРИЧИНЫ =====
+    if step == "waiting_reason":
+        # ЭТОТ БЛОК ТЕПЕРЬ ВЫПОЛНЯЕТСЯ!
+        logger.info(f"ПОЛУЧЕНА ПРИЧИНА: {text}")
+        
+        data = user_data[user_id]
+        target = data.get("target")
+        message = data.get("message")
+        
+        if not target or not message:
+            await update.message.reply_text("❌ Ошибка: данные потеряны. Начните заново /start")
+            del user_data[user_id]
+            return
+        
+        # Генерируем текст жалобы
+        complaint_text = generate_complaint(target, message, text)
+        subject = generate_subject(target)
+        
+        await update.message.reply_text(
+            f"⏳ Отправляю жалобу...\n"
+            f"📝 Причина: {text}\n"
+            f"🎯 Цель: @{target}"
+        )
+        
+        # Отправляем жалобу
         success = send_complaint_via_email(
-            sender_email=account['email'],
-            sender_password=account['password'],
+            sender_email=EMAIL_ACCOUNTS[0]['email'],
+            sender_password=EMAIL_ACCOUNTS[0]['password'],
             target_email="abuse@telegram.org",
             subject=subject,
             body=complaint_text
         )
         
         if success:
-            success_count += 1
             await update.message.reply_text(
-                f"✅ Жалоба отправлена с {account['email']}"
+                f"✅ ЖАЛОБА ОТПРАВЛЕНА!\n"
+                f"📧 С: {EMAIL_ACCOUNTS[0]['email']}\n"
+                f"📨 Кому: abuse@telegram.org\n"
+                f"🎯 Цель: @{target}\n"
+                f"📝 Причина: {text}\n\n"
+                f"Проверь папку 'Отправленные' в Gmail!"
             )
         else:
             await update.message.reply_text(
-                f"❌ Ошибка с {account['email']}"
+                "❌ ОШИБКА ОТПРАВКИ!\n\n"
+                "Проверь:\n"
+                "1. Пароль от почты\n"
+                "2. Доступ для ненадежных приложений\n"
+                "https://myaccount.google.com/lesssecureapps"
             )
         
-        # Пауза между отправками
-        if len(EMAIL_ACCOUNTS) > 1:
-            await asyncio.sleep(5)
+        del user_data[user_id]
+        return
     
-    # Итог
-    if success_count > 0:
-        await update.message.reply_text(
-            f"✅ ГОТОВО!\n"
-            f"📨 Отправлено жалоб: {success_count} из {total_accounts}\n"
-            f"📧 С почт: {', '.join([a['email'] for a in EMAIL_ACCOUNTS[:success_count]])}\n"
-            f"📨 Кому: abuse@telegram.org\n"
-            f"🎯 Цель: @{target}\n\n"
-            f"Проверь папку 'Отправленные' в Gmail!"
-        )
-    else:
-        await update.message.reply_text(
-            "❌ НИ ОДНА ЖАЛОБА НЕ ОТПРАВЛЕНА!\n\n"
-            "Возможные причины:\n"
-            "1. Неправильный пароль\n"
-            "2. Нужно включить 'Доступ для ненадежных приложений'\n"
-            "3. Не подтвержден вход в Google\n\n"
-            "Инструкция:\n"
-            "1. Зайди в Gmail\n"
-            "2. Настройки → Безопасность\n"
-            "3. Включи 'Доступ для ненадежных приложений'\n"
-            "4. Или создай пароль приложения"
-        )
-    
+    # Если шаг неизвестен
+    await update.message.reply_text("❌ Неизвестный шаг. Нажмите /start заново")
     del user_data[user_id]
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,19 +273,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     application = Application.builder().token(TOKEN).build()
     
-    # Регистрируем обработчики
+    # Регистрируем ТОЛЬКО ОДИН обработчик для всех текстовых сообщений
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reason))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_messages))
     
     print("="*60)
     print("🤖 БОТ ДЛЯ ЖАЛОБ ЧЕРЕЗ EMAIL")
     print("="*60)
-    print(f"📧 Email аккаунтов: {len(EMAIL_ACCOUNTS)}")
-    for acc in EMAIL_ACCOUNTS:
-        print(f"   - {acc['email']}")
+    print(f"📧 Email: {EMAIL_ACCOUNTS[0]['email']}")
     print(f"📨 Кому: abuse@telegram.org")
     print("="*60)
     print("📩 Используй /start")
