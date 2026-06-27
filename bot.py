@@ -1,4 +1,4 @@
-# bot.py - ПОЛНАЯ ВЕРСИЯ С ПРОВЕРКОЙ ПАРОЛЯ
+# bot.py - ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ С НОВЫМ ПАРОЛЕМ
 
 import os
 import asyncio
@@ -17,35 +17,15 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("❌ Ошибка: TELEGRAM_BOT_TOKEN не установлена!")
 
-# ===== ТВОЙ ПАРОЛЬ ПРИЛОЖЕНИЯ =====
-EMAIL = "allllkssso1@gmail.com"
-PASSWORD = "irosxfskteabviic"  # ЕСЛИ НЕ РАБОТАЕТ - СОЗДАЙ НОВЫЙ!
-
-# ===== ПРОВЕРКА ПАРОЛЯ ПРИ ЗАПУСКЕ =====
-def check_email():
-    """Проверяет, работает ли пароль приложения"""
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(EMAIL, PASSWORD)
-        server.quit()
-        print("✅ ПАРОЛЬ ПРИЛОЖЕНИЯ РАБОТАЕТ!")
-        return True
-    except Exception as e:
-        print(f"❌ ПАРОЛЬ НЕ РАБОТАЕТ: {e}")
-        print("\n🔧 СОЗДАЙ НОВЫЙ ПАРОЛЬ ПРИЛОЖЕНИЯ:")
-        print("1. https://myaccount.google.com/security")
-        print("2. 2-факторная аутентификация → ВКЛЮЧИТЬ")
-        print("3. Пароли приложений → СОЗДАТЬ")
-        print("4. Название: 'Telegram Bot'")
-        print("5. СКОПИРУЙ 16-ЗНАЧНЫЙ ПАРОЛЬ")
-        print("6. ВСТАВЬ В КОД ВМЕСТО irosxfskteabviic")
-        return False
-
-# Проверяем почту при запуске
-if not check_email():
-    print("⚠️ БОТ НЕ ЗАПУСТИТСЯ, ПОКА НЕ ИСПРАВИШЬ ПАРОЛЬ!")
-    exit(1)
+# ===== ТВОИ ДАННЫЕ (ОБНОВЛЕНО) =====
+EMAIL_ACCOUNTS = [
+    {
+        "email": "allllkssso1@gmail.com",
+        "password": "hrzaxqferrgdfsbr",  # НОВЫЙ ПАРОЛЬ ПРИЛОЖЕНИЯ
+        "smtp": "smtp.gmail.com",
+        "port": 587
+    },
+]
 
 # Отключаем webhook
 try:
@@ -57,6 +37,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 user_data = {}
+
+# ===== ПРОВЕРКА ПАРОЛЯ ПРИ ЗАПУСКЕ =====
+def check_email():
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(EMAIL_ACCOUNTS[0]['email'], EMAIL_ACCOUNTS[0]['password'])
+        server.quit()
+        print("✅ ПАРОЛЬ ПРИЛОЖЕНИЯ РАБОТАЕТ!")
+        return True
+    except Exception as e:
+        print(f"❌ ПАРОЛЬ НЕ РАБОТАЕТ: {e}")
+        return False
+
+# Проверяем
+if not check_email():
+    print("⚠️ ПАРОЛЬ НЕ РАБОТАЕТ! ПРОВЕРЬ:")
+    print(f"   Email: {EMAIL_ACCOUNTS[0]['email']}")
+    print(f"   Пароль: {EMAIL_ACCOUNTS[0]['password']}")
+    print("   Если не работает - создай новый пароль приложения")
+    exit(1)
 
 # ===== ФУНКЦИЯ ОТПРАВКИ =====
 
@@ -73,42 +74,61 @@ def send_complaint_via_email(sender_email, sender_password, target_email, subjec
         server.login(sender_email, sender_password)
         server.send_message(msg)
         server.quit()
+        
+        logger.info(f"✅ Письмо отправлено с {sender_email} на {target_email}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"❌ Ошибка: {e}")
         return False
 
 # ===== ГЕНЕРАТОР ЖАЛОБЫ =====
 
 def generate_complaint(target, message, reason):
-    # Чистим @
+    # Убираем лишний @
     if target.startswith('@@'):
         target = target[1:]
+    elif target.startswith('@'):
+        target = target
     
     return f"""
-🚨 ЖАЛОБА НА @{target}
+🚨 СРОЧНАЯ ЖАЛОБА НА ПОЛЬЗОВАТЕЛЯ @{target}
 
-Уважаемая поддержка Telegram!
+Уважаемая служба поддержки Telegram!
 
-Жалуюсь на пользователя @{target}.
+Я вынужден обратиться к вам с официальной жалобой на пользователя @{target},
+который нарушает правила платформы.
 
-ПРИЧИНА: {reason}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+НАРУШЕНИЕ:
+{reason}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ДОКАЗАТЕЛЬСТВО:
+СООБЩЕНИЕ-ДОКАЗАТЕЛЬСТВО:
 {message}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Прошу заблокировать аккаунт.
+Прошу:
+- Заблокировать аккаунт @{target}
+- Провести проверку
 
-Номер: TG-{random.randint(100000, 999999)}
+Номер обращения: TG-{random.randint(100000, 999999)}
 Дата: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+С уважением,
+Пользователь Telegram
 """
 
 def generate_subject(target):
     if target.startswith('@@'):
         target = target[1:]
-    return f"Complaint Against @{target}"
+    subjects = [
+        f"URGENT: Complaint Against @{target}",
+        f"VIOLATION REPORT: @{target}",
+        f"FORMAL COMPLAINT: @{target}",
+    ]
+    return random.choice(subjects)
 
-# ===== ОБРАБОТЧИКИ БОТА =====
+# ===== ОБРАБОТЧИКИ =====
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -131,6 +151,8 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.message.from_user.id
     text = update.message.text
     
+    logger.info(f"Сообщение от {user_id}: шаг {user_data.get(user_id, {}).get('step', 'нет')}")
+    
     if user_id not in user_data:
         await update.message.reply_text("Нажмите /start")
         return
@@ -147,7 +169,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    # ШАГ 2: ПЕРЕСЛАННОЕ СООБЩЕНИЕ
+    # ШАГ 2: ПЕРЕСЫЛКА
     if step == "waiting_message":
         is_forwarded = False
         forwarded_text = ""
@@ -156,6 +178,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             is_forwarded = True
             forwarded_text = update.message.text or "Медиа-сообщение"
         elif hasattr(update.message, 'forward_from_chat') and update.message.forward_from_chat:
+            is_forwarded = True
+            forwarded_text = update.message.text or "Медиа-сообщение"
+        elif hasattr(update.message, 'forward_origin') and update.message.forward_origin:
             is_forwarded = True
             forwarded_text = update.message.text or "Медиа-сообщение"
         
@@ -167,7 +192,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "📝 Напишите ПРИЧИНУ жалобы"
             )
         else:
-            await update.message.reply_text("❌ ПЕРЕШЛИТЕ сообщение, не копируйте!")
+            await update.message.reply_text(
+                "❌ Это НЕ пересланное сообщение!\n"
+                "Нажмите на сообщение → 'Переслать' → выберите бота"
+            )
         return
     
     # ШАГ 3: ПРИЧИНА → ОТПРАВКА
@@ -182,9 +210,11 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         
         # Чистим цель
-        clean_target = target if not target.startswith('@@') else target[1:]
+        clean_target = target
+        if clean_target.startswith('@@'):
+            clean_target = clean_target[1:]
         
-        # Генерируем жалобу
+        # Генерируем
         complaint = generate_complaint(clean_target, message, text)
         subject = generate_subject(clean_target)
         
@@ -194,8 +224,8 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # ОТПРАВЛЯЕМ
         success = send_complaint_via_email(
-            sender_email=EMAIL,
-            sender_password=PASSWORD,
+            sender_email=EMAIL_ACCOUNTS[0]['email'],
+            sender_password=EMAIL_ACCOUNTS[0]['password'],
             target_email="abuse@telegram.org",
             subject=subject,
             body=complaint
@@ -204,23 +234,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if success:
             await update.message.reply_text(
                 f"✅ ЖАЛОБА ОТПРАВЛЕНА!\n"
-                f"📧 С: {EMAIL}\n"
+                f"📧 С: {EMAIL_ACCOUNTS[0]['email']}\n"
                 f"📨 Кому: abuse@telegram.org\n"
                 f"🎯 Цель: @{clean_target}\n\n"
-                f"Проверь папку 'Отправленные' в Gmail!"
+                f"📬 Проверь папку 'Отправленные' в Gmail!"
             )
         else:
             await update.message.reply_text(
                 "❌ ОШИБКА ОТПРАВКИ!\n\n"
-                "🔧 СДЕЛАЙ ЭТО:\n"
-                "1. Зайди в аккаунт Google\n"
-                "2. https://myaccount.google.com/security\n"
-                "3. 2-факторная аутентификация → ВКЛЮЧИТЬ\n"
-                "4. Пароли приложений → СОЗДАТЬ НОВЫЙ\n"
-                "5. Название: 'Telegram Bot'\n"
-                "6. Скопируй НОВЫЙ пароль\n"
-                "7. Вставь в код вместо irosxfskteabviic\n"
-                "8. Перезапусти бота"
+                "Проверь логи в консоли."
             )
         
         del user_data[user_id]
@@ -234,6 +256,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in user_data:
         del user_data[user_id]
         await update.message.reply_text("❌ Отменено")
+    else:
+        await update.message.reply_text("Нет активного процесса")
 
 # ===== ЗАПУСК =====
 
@@ -248,7 +272,7 @@ def main():
     print("="*60)
     print("🤖 БОТ ДЛЯ ЖАЛОБ")
     print("="*60)
-    print(f"📧 Почта: {EMAIL}")
+    print(f"📧 Почта: {EMAIL_ACCOUNTS[0]['email']}")
     print(f"🔑 Пароль приложения: {'*' * 16}")
     print(f"📨 Кому: abuse@telegram.org")
     print("="*60)
