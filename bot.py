@@ -1,216 +1,228 @@
+# ===== БОТ С ТВОИМИ ПОЧТАМИ =====
+
 import os
 import asyncio
 import logging
+import smtplib
+import random
+import time
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import time
+import requests
 
-# ===== КОНФИГ ИЗ ПЕРЕМЕННЫХ =====
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Токен бота
+# ===== ТВОИ ПОЧТЫ =====
+EMAIL_ACCOUNTS = [
+    {
+        "email": "allllkssso1@gmail.com",
+        "password": "eller228",  # ТВОЙ ПАРОЛЬ
+        "smtp": "smtp.gmail.com",
+        "port": 587
+    },
+    # Если есть еще почты - добавляй сюда
+]
+
+# ===== КОНФИГ =====
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("❌ Ошибка: переменная TELEGRAM_BOT_TOKEN не установлена!")
+    raise ValueError("❌ Ошибка: TELEGRAM_BOT_TOKEN не установлена!")
 
-# Дополнительные переменные (опционально)
-TARGET_USERNAME = os.getenv("TARGET_USERNAME", "")  # Цель по умолчанию
-ADMIN_ID = os.getenv("ADMIN_ID", "")  # ID админа для логов
+# Отключаем webhook
+try:
+    requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
+except:
+    pass
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Хранилище данных пользователей
 user_data = {}
 
-# ===== ОБРАБОТЧИКИ =====
+# ===== ФУНКЦИЯ ОТПРАВКИ ЖАЛОБЫ =====
+
+def send_complaint_via_email(sender_email, sender_password, target_email, subject, body):
+    """Реально отправляет письмо с твоей почты"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = target_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Подключаемся к Gmail SMTP
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, sender_password)  # ВХОДИМ В ТВОЮ ПОЧТУ
+        server.send_message(msg)  # ОТПРАВЛЯЕМ
+        server.quit()
+        
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка: {e}")
+        return False
+
+# ===== ГЕНЕРАТОР ТЕКСТА ЖАЛОБЫ =====
+
+def generate_complaint(target, message, reason):
+    return f"""
+🚨 СРОЧНАЯ ЖАЛОБА НА ПОЛЬЗОВАТЕЛЯ @{target}
+
+Уважаемая служба поддержки Telegram!
+
+Я вынужден обратиться к вам с официальной жалобой на пользователя @{target},
+который систематически нарушает правила платформы.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+НАРУШЕНИЕ:
+{reason}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+СООБЩЕНИЕ-ДОКАЗАТЕЛЬСТВО:
+{message}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Данный пользователь:
+1. Распространяет оскорбительный контент
+2. Нарушает правила сообщества
+3. Создает угрозу для других пользователей
+
+Прошу принять меры:
+- Заблокировать аккаунт @{target}
+- Провести проверку
+- Удалить все нарушающие сообщения
+
+Номер обращения: TG-{random.randint(100000, 999999)}
+Дата: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+С уважением,
+Пользователь Telegram
+"""
+
+# ===== ОБРАБОТЧИКИ БОТА =====
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приветственное сообщение с кнопками"""
     keyboard = [
         [InlineKeyboardButton("🚀 Старт", callback_data="start_action")],
         [InlineKeyboardButton("🎯 Выбрать цель", callback_data="target_action")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await update.message.reply_text(
-        "Добро пожаловать, выберите кнопки снизу",
-        reply_markup=reply_markup
+        "Добро пожаловать! Выберите кнопку:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка нажатий кнопок"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     
     if query.data == "start_action":
-        # Если есть цель по умолчанию
-        if TARGET_USERNAME:
-            user_data[user_id] = {
-                "step": "waiting_message",
-                "target": TARGET_USERNAME
-            }
-            await query.edit_message_text(
-                f"🎯 Цель: {TARGET_USERNAME}\n"
-                "📩 Перешлите сообщение для отправки жалобы.\n"
-                "(После пересланного сообщения 👇)"
-            )
-        else:
-            await query.edit_message_text(
-                "⚠️ Сначала выберите цель через кнопку 'Выбрать цель'"
-            )
+        user_data[user_id] = {"step": "waiting_target"}
+        await query.edit_message_text("🎯 Введите username цели (например: @username)")
     
     elif query.data == "target_action":
-        await query.edit_message_text(
-            "🎯 Введите username или ID цели (например: @username или 123456789)"
-        )
         user_data[user_id] = {"step": "waiting_target"}
+        await query.edit_message_text("🎯 Введите username цели (например: @username)")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка всех текстовых сообщений"""
     user_id = update.message.from_user.id
     text = update.message.text
     
-    # Если пользователь не в процессе - игнорируем
     if user_id not in user_data:
-        await update.message.reply_text("Нажмите /start для начала")
+        await update.message.reply_text("Нажмите /start")
         return
     
     step = user_data[user_id].get("step")
     
     if step == "waiting_target":
-        # Сохраняем цель
         user_data[user_id]["target"] = text
         user_data[user_id]["step"] = "waiting_message"
         await update.message.reply_text(
-            f"✅ Цель сохранена: {text}\n"
-            "Теперь перешлите сообщение для отправки жалобы.\n"
-            "(После пересланного сообщения 👇)"
+            f"✅ Цель: {text}\n"
+            "Теперь ПЕРЕШЛИТЕ сообщение, на которое нужно отправить жалобу"
         )
     
     elif step == "waiting_message":
-        # Проверяем пересланное сообщение
         if update.message.forward_from or update.message.forward_from_chat:
-            # Сохраняем пересланное сообщение
-            user_data[user_id]["forwarded_message"] = update.message
-            
-            # Запрашиваем причину
+            forwarded_text = update.message.text or "Медиа-сообщение (скриншот прикреплен)"
+            user_data[user_id]["message"] = forwarded_text
             user_data[user_id]["step"] = "waiting_reason"
-            await update.message.reply_text(
-                "📝 Назовите причину для жалобы\n"
-                "(После причины 👇)"
-            )
+            await update.message.reply_text("📝 Напишите причину жалобы")
         else:
-            await update.message.reply_text(
-                "❌ Пожалуйста, ПЕРЕШЛИТЕ сообщение (не копируйте текст).\n"
-                "Нажмите на сообщение → 'Переслать' → выберите этого бота."
-            )
+            await update.message.reply_text("❌ ПЕРЕШЛИТЕ сообщение, не копируйте!")
 
 async def handle_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка причины жалобы и запуск отправки"""
     user_id = update.message.from_user.id
     reason = update.message.text
     
-    if user_id not in user_data:
-        await update.message.reply_text("Нажмите /start для начала")
+    if user_id not in user_data or user_data[user_id].get("step") != "waiting_reason":
         return
     
-    if user_data[user_id].get("step") != "waiting_reason":
-        return
-    
-    # Сохраняем причину
-    user_data[user_id]["reason"] = reason
-    user_data[user_id]["step"] = "sending"
-    
-    await update.message.reply_text(
-        "⏳ Начинаю отправку жалоб...\n"
-        "Отправляется по 1 жалобе каждые 30 секунд.\n"
-        "Не останавливайте бота!"
-    )
-    
-    # Запускаем отправку жалоб
-    await send_complaints(update, context)
-
-async def send_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправка жалоб в техподдержку"""
-    user_id = update.message.from_user.id
     data = user_data[user_id]
+    target = data["target"]
+    message = data["message"]
     
-    target = data.get("target")
-    forwarded_msg = data.get("forwarded_message")
-    reason = data.get("reason")
+    # Генерируем текст жалобы
+    complaint_text = generate_complaint(target, message, reason)
     
-    # Формируем текст жалобы
-    complaint_text = (
-        f"🚨 ЖАЛОБА НА ПОЛЬЗОВАТЕЛЯ\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 Цель: {target}\n"
-        f"📝 Причина: {reason}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📩 Пересланное сообщение:\n"
-        f"{forwarded_msg.text if forwarded_msg.text else '[Медиа-сообщение]'}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🕐 Отправлено: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+    await update.message.reply_text("⏳ Отправляю жалобу с твоей почты...")
+    
+    # ОТПРАВЛЯЕМ РЕАЛЬНУЮ ЖАЛОБУ
+    success = send_complaint_via_email(
+        sender_email="allllkssso1@gmail.com",
+        sender_password="eller228",
+        target_email="abuse@telegram.org",
+        subject=f"URGENT: Complaint Against @{target}",
+        body=complaint_text
     )
     
-    # Отправляем в @notoscam (техподдержка Telegram)
-    try:
-        # Отправляем 5 жалоб с интервалом 30 секунд
-        for i in range(1, 6):
-            await context.bot.send_message(
-                chat_id="@notoscam",  # Официальный бот техподдержки
-                text=complaint_text
-            )
-            
-            # Прогресс-сообщение пользователю
-            await update.message.reply_text(
-                f"✅ Жалоба #{i} отправлена. Осталось: {5 - i}"
-            )
-            
-            if i < 5:
-                await asyncio.sleep(30)  # Пауза 30 секунд
-        
+    if success:
         await update.message.reply_text(
-            "✅ ВСЕ ЖАЛОБЫ ОТПРАВЛЕНЫ!\n"
-            "Всего отправлено: 5 жалоб\n"
-            "Интервал: 30 секунд"
+            f"✅ ЖАЛОБА ОТПРАВЛЕНА!\n"
+            f"📧 С: allllkssso1@gmail.com\n"
+            f"📨 Кому: abuse@telegram.org\n"
+            f"🎯 Цель: @{target}\n\n"
+            f"Проверь папку 'Отправленные' в Gmail!"
         )
-        
-        # Очищаем данные пользователя
-        del user_data[user_id]
-        
-    except Exception as e:
+    else:
         await update.message.reply_text(
-            f"❌ Ошибка при отправке: {str(e)}\n"
-            "Попробуйте позже."
+            "❌ ОШИБКА ОТПРАВКИ!\n"
+            "Возможные причины:\n"
+            "1. Неправильный пароль\n"
+            "2. Нужно включить 'Доступ для ненадежных приложений'\n"
+            "3. Не подтвержден вход\n\n"
+            "Инструкция в следующем сообщении"
         )
-        logger.error(f"Error: {e}")
+    
+    del user_data[user_id]
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена текущего процесса"""
     user_id = update.message.from_user.id
     if user_id in user_data:
         del user_data[user_id]
-        await update.message.reply_text("❌ Процесс отменен. Нажмите /start для начала заново.")
-    else:
-        await update.message.reply_text("Нет активного процесса.")
+        await update.message.reply_text("❌ Отменено")
+
+# ===== ЗАПУСК =====
 
 def main():
-    """Запуск бота"""
-    # Создаем приложение
     application = Application.builder().token(TOKEN).build()
     
-    # Регистрируем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Отдельный обработчик для причины (после пересылки)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reason))
     
-    # Запуск бота
-    print("🤖 Бот запущен!")
-    print(f"⚡ Токен: {TOKEN[:10]}...")
-    print("📩 Используйте /start")
+    print("="*50)
+    print("🤖 БОТ С ТВОЕЙ ПОЧТОЙ")
+    print("="*50)
+    print(f"📧 Email: allllkssso1@gmail.com")
+    print(f"🔑 Пароль: eller228")
+    print(f"📨 Кому: abuse@telegram.org")
+    print("="*50)
+    print("📩 Используй /start")
+    print("="*50)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
